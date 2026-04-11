@@ -4,15 +4,11 @@
 A2^{-1}*A1*X=X*B2*B1^{−1}
 """
 
+import glob
 import os
 
 import cv2
 import numpy as np
-
-np.set_printoptions(precision=8, suppress=True)
-
-iamges_path = "./collect_data"  # 手眼标定采集的标定版图片所在路径
-arm_pose_file = "./collect_data/poses.txt"  # 采集标定板图片时对应的机械臂末端的位姿 从 第一行到最后一行 需要和采集的标定板的图片顺序进行对应
 
 
 def euler_angles_to_rotation_matrix(rx, ry, rz):
@@ -44,8 +40,8 @@ def pose_to_homogeneous_matrix(pose):
 def camera_calibrate(iamges_path):
     print("++++++++++开始相机标定++++++++++++++")
     # 角点的个数以及棋盘格间距
-    XX = 9  # 标定板的中长度对应的角点的个数
-    YY = 6  # 标定板的中宽度对应的角点的个数
+    XX = 11  # 标定板的中长度对应的角点的个数
+    YY = 8  # 标定板的中宽度对应的角点的个数
     L = 0.035  # 标定板一格的长度  单位为米
 
     # 设置寻找亚像素角点的参数，采用的停止准则是最大循环次数30和最大误差容限0.001
@@ -53,56 +49,53 @@ def camera_calibrate(iamges_path):
 
     # 获取标定板角点的位置
     objp = np.zeros((XX * YY, 3), np.float32)
-    objp[:, :2] = np.mgrid[0:XX, 0:YY].T.reshape(-1, 2)  # 将世界坐标系建在标定板上，所有点的Z坐标全部为0，所以只需要赋值x和y
+    # 将世界坐标系建在标定板上，所有点的Z坐标全部为0，所以只需要赋值x和y
+    objp[:, :2] = np.mgrid[0:XX, 0:YY].T.reshape(-1, 2)
     objp = L * objp
 
     obj_points = []  # 存储3D点
     img_points = []  # 存储2D点
 
-    for i in range(0, 20):  # 标定好的图片在iamges_path路径下，从0.jpg到x.jpg   一般采集20张左右就够，实际情况可修改
+    imagePaths = sorted(glob.glob(os.path.join(iamges_path, "*.jpg")))
 
-        image = f"{iamges_path}/{i}.jpg"
-        print(f"正在处理第{i}张图片：{image}")
+    SHOWIMAGE = False
+    for image in imagePaths:
+        print(f"正在处理：{image}")
 
         if os.path.exists(image):
 
             img = cv2.imread(image)
-            print(f"图像大小： {img.shape}")
-            # h_init, width_init = img.shape[:2]
-            # img = cv2.resize(src=img, dsize=(width_init // 2, h_init // 2))
-            # print(f"图像大小(resize)： {img.shape}")
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
             size = gray.shape[::-1]
-            ret, corners = cv2.findChessboardCorners(gray, (XX, YY), None)
-            # print(corners)
-            print(f"左上角点：{corners[0, 0]}")
-            print(f"右下角点：{corners[-1, -1]}")
-
-            # 绘制角点并显示图像
-            cv2.drawChessboardCorners(img, (XX, YY), corners, ret)
-            cv2.imshow('Chessboard', img)
-
-            cv2.waitKey(3000)  ## 停留1s, 观察找到的角点是否正确
+            ret, corners = cv2.findChessboardCorners(
+                gray, (XX, YY), cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE)
 
             if ret:
 
+                if SHOWIMAGE:
+                    cv2.drawChessboardCorners(img, (XX, YY), corners, ret)
+                    cv2.imshow('Chessboard', img)
+                    cv2.waitKey(3000)
                 obj_points.append(objp)
 
-                corners2 = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)  # 在原角点的基础上寻找亚像素角点
+                corners2 = cv2.cornerSubPix(
+                    # 在原角点的基础上寻找亚像素角点
+                    gray, corners, (5, 5), (-1, -1), criteria)
                 if [corners2]:
                     img_points.append(corners2)
                 else:
                     img_points.append(corners)
-
-    N = len(img_points)
+            else:
+                print(f"{image}:未找到角点")
 
     # 标定得到图案在相机坐标系下的位姿
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, size, None, None)
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
+        obj_points, img_points, size, None, None)
 
     # print("ret:", ret)
     print("内参矩阵:\n", mtx)  # 内参数矩阵
-    print("畸变系数:\n", dist)  # 畸变系数   distortion cofficients = (k_1,k_2,p_1,p_2,k_3)
+    # 畸变系数   distortion cofficients = (k_1,k_2,p_1,p_2,k_3)
+    print("畸变系数:\n", dist)
 
     print("++++++++++相机标定完成++++++++++++++")
 
@@ -126,15 +119,22 @@ def process_arm_pose(arm_pose_file):
 
 
 def hand_eye_calibrate():
-    rvecs, tvecs = camera_calibrate(iamges_path=iamges_path)
-    R_arm, t_arm = process_arm_pose(arm_pose_file=arm_pose_file)
+    rvecs, tvecs = camera_calibrate(iamges_path)
+    R_arm, t_arm = process_arm_pose(arm_pose_file)
 
-    R, t = cv2.calibrateHandEye(R_arm, t_arm, rvecs, tvecs, cv2.CALIB_HAND_EYE_TSAI)
+    R, t = cv2.calibrateHandEye(
+        R_arm, t_arm, rvecs, tvecs, cv2.CALIB_HAND_EYE_TSAI)
     print("+++++++++++手眼标定完成+++++++++++++++")
     return R, t
 
 
 if __name__ == "__main__":
+    np.set_printoptions(precision=4, suppress=True)
+
+    iamges_path = "collect_data\\"  # 手眼标定采集的标定版图片所在路径
+    # 采集标定板图片时对应的机械臂末端的位姿 从 第一行到最后一行 需要和采集的标定板的图片顺序进行对应
+    arm_pose_file = "collect_data\\poses.txt"
+
     R, t = hand_eye_calibrate()
 
     print("旋转矩阵：")
