@@ -12,3 +12,8 @@ dependencies = [
     "scipy>=1.17.1",
 ]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
+[tool.pytest.ini_options]
+testpaths = ["YZX_lib/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
