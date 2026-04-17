@@ -1,3 +1,8 @@
 {
-    "python.languageServer": "Default"
+    "python.languageServer": "Default",
+    "python.testing.pytestArgs": [
+        "Yzx_pose_lib"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }
